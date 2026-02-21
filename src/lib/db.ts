@@ -180,8 +180,15 @@ function migrate(d: Database.Database) {
 
 export function getDb() {
   if (db) return db;
-  const root = process.cwd();
-  const dir = path.join(root, ".scout");
+  
+  let dir: string;
+  if (process.env.VERCEL) {
+    dir = "/tmp/.scout";
+  } else {
+    const root = process.cwd();
+    dir = path.join(root, ".scout");
+  }
+  
   ensureDir(dir);
   const dbPath = path.join(dir, "scout.db");
   db = new Database(dbPath);
