@@ -1,3 +1,5 @@
+import nodemailer from "nodemailer";
+
 export async function sendOtpEmail(params: { to: string; code: string }) {
   const host = process.env.SMTP_HOST;
   const port = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined;
@@ -11,23 +13,6 @@ export async function sendOtpEmail(params: { to: string; code: string }) {
   }
 
   try {
-    const importer = new Function("m", "return import(m)") as (m: string) => Promise<any>;
-    let nodemailer: any;
-    try {
-      const mod = await importer("nodemailer");
-      nodemailer = mod?.default ?? mod;
-    } catch (importErr: any) {
-      const msg = importErr?.message ?? "";
-      const isMissing = /Cannot find package 'nodemailer'|Cannot find module 'nodemailer'|MODULE_NOT_FOUND/i.test(msg);
-      if (isMissing) {
-        return {
-          ok: false,
-          dev: false,
-          error: "Nodemailer is not installed. Run `npm.cmd install` then restart the dev server."
-        };
-      }
-      throw importErr;
-    }
     const transporter = nodemailer.createTransport({
       host,
       port,
