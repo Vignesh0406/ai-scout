@@ -1,0 +1,24 @@
+{
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "nodeVersion": "18.x",
+  "env": {
+    "SMTP_HOST": {
+      "description": "Gmail SMTP server (smtp.gmail.com)"
+    },
+    "SMTP_PORT": {
+      "description": "Gmail SMTP port (465)"
+    },
+    "SMTP_USER": {
+      "description": "Gmail address for sending OTPs"
+    },
+    "SMTP_PASS": {
+      "description": "Gmail app-specific password (get from https://myaccount.google.com/apppasswords)"
+    },
+    "SMTP_FROM": {
+      "description": "Email address in format: \"<your-email@gmail.com>\""
+    }
+  }
+}

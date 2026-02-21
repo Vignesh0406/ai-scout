@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --accent: 59 130 246;
+  --accent-hover: 37 99 235;
+}
+
+body {
+  @apply min-h-screen text-zinc-900 antialiased;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 50%, #f0f4f8 100%);
+}
+
+html.dark body {
+  @apply text-zinc-50;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #1a1f35 100%);
+}
+
+::selection {
+  background: rgb(var(--accent));
+  color: white;
+}
+
+@layer components {
+  .glass {
+    @apply backdrop-blur-md bg-white/40 dark:bg-zinc-950/40;
+  }
+
+  .card-hover {
+    @apply transition-all duration-300 ease-out hover:shadow-elevation-2 hover:-translate-y-1;
+  }
+
+  .card {
+    @apply rounded-2xl border border-zinc-200/80 dark:border-zinc-800/80 bg-white/80 dark:bg-zinc-950/70 backdrop-blur-xl shadow-sm;
+  }
+
+  .btn-primary {
+    @apply inline-flex h-11 items-center justify-center rounded-xl bg-blue-600 px-4 text-sm font-semibold text-white
+    shadow-sm transition-all duration-200 hover:bg-blue-700 active:scale-[0.98]
+    focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-950
+    disabled:pointer-events-none disabled:opacity-60;
+  }
+
+  .btn-secondary {
+    @apply inline-flex h-11 items-center justify-center rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-950/50
+    px-4 text-sm font-semibold text-zinc-800 dark:text-zinc-200 shadow-sm
+    transition-all duration-200 hover:bg-white hover:border-zinc-300 dark:hover:bg-zinc-900/60 dark:hover:border-zinc-700 active:scale-[0.98]
+    focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-950
+    disabled:pointer-events-none disabled:opacity-60;
+  }
+
+  .input-field {
+    @apply h-11 w-full rounded-xl border border-zinc-200 dark:border-zinc-800
+    bg-white/90 dark:bg-zinc-900/60 px-4 text-sm
+    text-zinc-900 dark:text-zinc-100
+    placeholder:text-zinc-400 dark:placeholder:text-zinc-500
+    focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-950
+    transition-all duration-200;
+  }
+
+  .form-group {
+    @apply space-y-2;
+  }
+
+  .label {
+    @apply text-sm font-medium text-zinc-500 dark:text-zinc-400;
+  }
+}
