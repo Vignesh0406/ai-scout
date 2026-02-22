@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { searchCompaniesPaged } from "@/lib/repo";
 import SaveSearchClient from "@/components/SaveSearchClient";
+import AddCompanyClient from "@/components/AddCompanyClient";
+import LogoutButtonClient from "@/components/LogoutButtonClient";
 
 function qs(base: URLSearchParams, patch: Record<string, string | undefined>) {
   const next = new URLSearchParams(base.toString());
@@ -60,8 +62,14 @@ export default async function CompaniesPage({
             <div className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">Companies</div>
             <div className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">Discover, enrich, score, and take action.</div>
           </div>
-          <div className="w-full md:w-[520px]">
-            <SaveSearchClient />
+          <div className="flex flex-col gap-3 w-full md:w-auto md:items-end">
+            <div className="flex gap-3 w-full md:w-auto">
+              <LogoutButtonClient />
+              <AddCompanyClient />
+            </div>
+            <div className="w-full md:w-[520px]">
+              <SaveSearchClient />
+            </div>
           </div>
         </div>
       </div>
