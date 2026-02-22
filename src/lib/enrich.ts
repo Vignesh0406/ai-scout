@@ -78,6 +78,7 @@ function extractSignals(text: string, pages: Array<{ url: string; title: string 
 export async function fetchAndExtract(params: {
   url: string;
   maxPages?: number;
+  timeoutMs?: number;
 }): Promise<{
   sourceUrl: string;
   pages: Array<{ url: string; title: string; text: string }>;
@@ -96,12 +97,13 @@ export async function fetchAndExtract(params: {
 }> {
   const sourceUrl = normalizeUrl(params.url);
   const maxPages = params.maxPages ?? 4;
+  const timeoutMs = params.timeoutMs ?? 30000;
 
   const toFetch = new Set<string>([sourceUrl]);
   const pages: Array<{ url: string; title: string; text: string }> = [];
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 12000);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const res = await fetch(sourceUrl, {
