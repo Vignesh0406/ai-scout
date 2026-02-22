@@ -100,75 +100,97 @@ export async function fetchAndExtract(params: {
   const toFetch = new Set<string>([sourceUrl]);
   const pages: Array<{ url: string; title: string; text: string }> = [];
 
-  const res = await fetch(sourceUrl, {
-    redirect: "follow",
-    headers: {
-      "user-agent": "precision-ai-scout/0.1"
-    }
-  });
-  const html = await res.text();
-  const $ = cheerio.load(html);
-  const title = ($("title").first().text() || "").trim();
-  const rootText = extractVisibleText(html);
-  pages.push({ url: sourceUrl, title, text: rootText.slice(0, 20000) });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 12000);
 
-  const base = new URL(sourceUrl);
-  const links: string[] = [];
-  $("a[href]").each((_i: number, el: any) => {
-    const href = String($(el).attr("href") || "");
-    if (!href) return;
-    try {
-      const u = new URL(href, base);
-      if (u.hostname !== base.hostname) return;
-      const p = u.pathname.toLowerCase();
-      if (["/pricing", "/careers", "/jobs", "/security", "/trust", "/about", "/product"].some((x) => p.startsWith(x))) {
-        links.push(u.toString());
+  try {
+    const res = await fetch(sourceUrl, {
+      redirect: "follow",
+      headers: {
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      },
+      signal: controller.signal
+    });
+    
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    }
+    
+    const html = await res.text();
+    const $ = cheerio.load(html);
+    const title = ($("title").first().text() || "").trim();
+    const rootText = extractVisibleText(html);
+    pages.push({ url: sourceUrl, title, text: rootText.slice(0, 20000) });
+
+    const base = new URL(sourceUrl);
+    const links: string[] = [];
+    $("a[href]").each((_i: number, el: any) => {
+      const href = String($(el).attr("href") || "");
+      if (!href) return;
+      try {
+        const u = new URL(href, base);
+        if (u.hostname !== base.hostname) return;
+        const p = u.pathname.toLowerCase();
+        if (["/pricing", "/careers", "/jobs", "/security", "/trust", "/about", "/product"].some((x) => p.startsWith(x))) {
+          links.push(u.toString());
+        }
+      } catch {
+        return;
       }
-    } catch {
-      return;
-    }
-  });
+    });
 
-  for (const l of links.slice(0, Math.max(0, maxPages - 1))) {
-    if (toFetch.has(l)) continue;
-    toFetch.add(l);
-    try {
-      const r = await fetch(l, { redirect: "follow", headers: { "user-agent": "precision-ai-scout/0.1" } });
-      const h = await r.text();
-      const $$ = cheerio.load(h);
-      const t = ($$("title").first().text() || "").trim();
-      const txt = extractVisibleText(h);
-      pages.push({ url: l, title: t, text: txt.slice(0, 20000) });
-    } catch {
-      // ignore
+    for (const l of links.slice(0, Math.max(0, maxPages - 1))) {
+      if (toFetch.has(l)) continue;
+      toFetch.add(l);
+      try {
+        const r = await fetch(l, { 
+          redirect: "follow", 
+          headers: { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+          signal: controller.signal
+        });
+        if (!r.ok) continue;
+        const h = await r.text();
+        const $$ = cheerio.load(h);
+        const t = ($$("title").first().text() || "").trim();
+        const txt = extractVisibleText(h);
+        pages.push({ url: l, title: t, text: txt.slice(0, 20000) });
+      } catch {
+        continue;
+      }
     }
+
+    if (pages.length === 0) {
+      throw new Error("No content could be extracted from the website");
+    }
+
+    const combinedText = pages.map((p) => `${p.title}\n${p.text}`).join("\n\n");
+    const lc = combinedText.toLowerCase();
+
+    const extracted = {
+      title: title || undefined,
+      hasPricing: lc.includes("pricing") || lc.includes("request a demo") || lc.includes("contact sales"),
+      hasCareers: lc.includes("careers") || lc.includes("open roles") || lc.includes("we're hiring"),
+      hasSecurity: lc.includes("security") || lc.includes("soc 2") || lc.includes("iso 27001") || lc.includes("trust")
+    };
+
+    const summary = extractSummary(combinedText);
+    const whatTheyDo = extractBullets(combinedText);
+    const keywords = extractKeywords(combinedText);
+    const signals = extractSignals(combinedText, pages);
+    const fetchedAt = new Date().toISOString();
+
+    return { 
+      sourceUrl, 
+      pages, 
+      combinedText, 
+      summary,
+      whatTheyDo,
+      keywords,
+      signals,
+      extracted,
+      fetchedAt
+    };
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  const combinedText = pages.map((p) => `${p.title}\n${p.text}`).join("\n\n");
-  const lc = combinedText.toLowerCase();
-
-  const extracted = {
-    title: title || undefined,
-    hasPricing: lc.includes("pricing") || lc.includes("request a demo") || lc.includes("contact sales"),
-    hasCareers: lc.includes("careers") || lc.includes("open roles") || lc.includes("we're hiring"),
-    hasSecurity: lc.includes("security") || lc.includes("soc 2") || lc.includes("iso 27001") || lc.includes("trust")
-  };
-
-  const summary = extractSummary(combinedText);
-  const whatTheyDo = extractBullets(combinedText);
-  const keywords = extractKeywords(combinedText);
-  const signals = extractSignals(combinedText, pages);
-  const fetchedAt = new Date().toISOString();
-
-  return { 
-    sourceUrl, 
-    pages, 
-    combinedText, 
-    summary,
-    whatTheyDo,
-    keywords,
-    signals,
-    extracted,
-    fetchedAt
-  };
 }
