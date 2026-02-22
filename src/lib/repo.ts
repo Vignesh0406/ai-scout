@@ -15,31 +15,33 @@ export async function searchCompanies(params: {
   const geo = (params.geo ?? "").trim();
   const hasWebsite = (params.hasWebsite ?? "").trim();
 
-  let whereConditions = "";
   const conditions: string[] = [];
-
-  if (q) conditions.push(`(c.name ILIKE '%${q}%' OR c.domain ILIKE '%${q}%' OR c.one_liner ILIKE '%${q}%')`);
-  if (stage) conditions.push(`c.stage ILIKE '%${stage}%'`);
-  if (geo) conditions.push(`c.geo ILIKE '%${geo}%'`);
+  if (q) conditions.push(`(c.name ILIKE $1 OR c.domain ILIKE $1 OR c.one_liner ILIKE $1)`);
+  if (stage) conditions.push(`c.stage ILIKE $2`);
+  if (geo) conditions.push(`c.geo ILIKE $3`);
   if (hasWebsite === "1") conditions.push("(c.website_url IS NOT NULL AND c.website_url != '')");
   if (hasWebsite === "0") conditions.push("(c.website_url IS NULL OR c.website_url = '')");
 
-  if (conditions.length > 0) {
-    whereConditions = "WHERE " + conditions.join(" AND ");
-  }
-
-  const rows = await sql`
+  const whereClause = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
+  const queryStr = `
     SELECT
       c.id, c.name, c.domain, c.website_url, c.one_liner, c.stage, c.geo, c.created_at, c.updated_at,
       tm.score as match_score,
       tm.reasons_json as match_reasons_json,
       tm.missing_json as match_missing_json
     FROM companies c
-    LEFT JOIN thesis_matches tm ON tm.company_id = c.id AND tm.thesis_id = ${thesis.id}
-    ${sql(whereConditions)}
+    LEFT JOIN thesis_matches tm ON tm.company_id = c.id AND tm.thesis_id = $4
+    ${whereClause}
     ORDER BY c.updated_at DESC
     LIMIT 200
   `;
+
+  const rows = await sql.unsafe(queryStr, [
+    `%${q}%`,
+    `%${stage}%`,
+    `%${geo}%`,
+    thesis.id
+  ]);
 
   return rows as any;
 }
@@ -64,18 +66,14 @@ export async function searchCompaniesPaged(params: {
   const limit = Math.max(1, Math.min(200, params.limit ?? 25));
   const offset = Math.max(0, params.offset ?? 0);
 
-  let whereConditions = "";
   const conditions: string[] = [];
-
-  if (q) conditions.push(`(c.name ILIKE '%${q}%' OR c.domain ILIKE '%${q}%' OR c.one_liner ILIKE '%${q}%')`);
-  if (stage) conditions.push(`c.stage ILIKE '%${stage}%'`);
-  if (geo) conditions.push(`c.geo ILIKE '%${geo}%'`);
+  if (q) conditions.push(`(c.name ILIKE $1 OR c.domain ILIKE $1 OR c.one_liner ILIKE $1)`);
+  if (stage) conditions.push(`c.stage ILIKE $2`);
+  if (geo) conditions.push(`c.geo ILIKE $3`);
   if (hasWebsite === "1") conditions.push("(c.website_url IS NOT NULL AND c.website_url != '')");
   if (hasWebsite === "0") conditions.push("(c.website_url IS NULL OR c.website_url = '')");
 
-  if (conditions.length > 0) {
-    whereConditions = "WHERE " + conditions.join(" AND ");
-  }
+  const whereClause = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
 
   const sort = params.sort ?? "updated";
   const dir = params.dir === "asc" ? "ASC" : "DESC";
@@ -87,25 +85,40 @@ export async function searchCompaniesPaged(params: {
         ? `COALESCE(tm.score, -1) ${dir}, c.updated_at DESC`
         : `c.updated_at ${dir}`;
 
-  const totalResults = await sql`
+  const countQueryStr = `
     SELECT COUNT(*) as n
     FROM companies c
-    ${sql(whereConditions)}
+    ${whereClause}
   `;
+
+  const totalResults = await sql.unsafe(countQueryStr, [
+    `%${q}%`,
+    `%${stage}%`,
+    `%${geo}%`
+  ]);
 
   const total = Number(totalResults[0]?.n ?? 0);
 
-  const rows = await sql`
+  const rowsQueryStr = `
     SELECT
       c.id, c.name, c.domain, c.website_url, c.one_liner, c.stage, c.geo, c.created_at, c.updated_at,
       tm.score as match_score
     FROM companies c
-    LEFT JOIN thesis_matches tm ON tm.company_id = c.id AND tm.thesis_id = ${thesis.id}
-    ${sql(whereConditions)}
-    ORDER BY ${sql(orderBy)}
-    LIMIT ${limit}
-    OFFSET ${offset}
+    LEFT JOIN thesis_matches tm ON tm.company_id = c.id AND tm.thesis_id = $4
+    ${whereClause}
+    ORDER BY ${orderBy}
+    LIMIT $5
+    OFFSET $6
   `;
+
+  const rows = await sql.unsafe(rowsQueryStr, [
+    `%${q}%`,
+    `%${stage}%`,
+    `%${geo}%`,
+    thesis.id,
+    limit,
+    offset
+  ]);
 
   return { total, rows: rows as any };
 }
