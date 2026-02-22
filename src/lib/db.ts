@@ -123,6 +123,23 @@ async function migrate() {
 
     await sql`CREATE INDEX IF NOT EXISTS idx_thesis_matches_company ON thesis_matches(company_id)`;
 
+    const constraints = await sql`
+      SELECT constraint_name FROM information_schema.table_constraints 
+      WHERE table_name = 'thesis_matches' AND constraint_type = 'UNIQUE'
+    `;
+    const hasUniqueConstraint = constraints.some((c: any) => c.constraint_name?.includes('company_id'));
+    if (!hasUniqueConstraint) {
+      try {
+        await sql`
+          ALTER TABLE thesis_matches 
+          ADD CONSTRAINT thesis_matches_company_id_thesis_id_unique 
+          UNIQUE(company_id, thesis_id)
+        `;
+      } catch {
+        // constraint might already exist
+      }
+    }
+
     await sql`
       CREATE TABLE IF NOT EXISTS company_lists (
         id SERIAL PRIMARY KEY,
