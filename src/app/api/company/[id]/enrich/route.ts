@@ -31,13 +31,14 @@ export async function POST(
   if (!url) return NextResponse.json({ error: "No website to enrich" }, { status: 400 });
 
   const enriched = await fetchAndExtract({ url });
-  const d = getDb();
+  const sql = getDb();
 
-  d.prepare(
-    "insert into company_enrichment(company_id, source_url, pages_json, extracted_json, combined_text) values(?, ?, ?, ?, ?)"
-  ).run(companyId, enriched.sourceUrl, JSON.stringify(enriched.pages), JSON.stringify(enriched.extracted), enriched.combinedText);
+  await sql`
+    INSERT INTO company_enrichment(company_id, source_url, pages_json, extracted_json, combined_text) 
+    VALUES(${companyId}, ${enriched.sourceUrl}, ${JSON.stringify(enriched.pages)}, ${JSON.stringify(enriched.extracted)}, ${enriched.combinedText})
+  `;
 
-  d.prepare("update companies set updated_at=datetime('now') where id = ?").run(companyId);
+  await sql`UPDATE companies SET updated_at = NOW() WHERE id = ${companyId}`;
 
   const match = await computeAndUpsertMatch(companyId, enriched.combinedText);
 

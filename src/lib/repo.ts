@@ -8,51 +8,40 @@ export async function searchCompanies(params: {
   geo?: string;
   hasWebsite?: string;
 }): Promise<Array<Company & { match_score: number | null; match_reasons_json: string | null; match_missing_json: string | null }>> {
-  const d = getDb();
-  const thesis = getActiveThesis();
+  const sql = getDb();
+  const thesis = await getActiveThesis();
   const q = (params.q ?? "").trim();
   const stage = (params.stage ?? "").trim();
   const geo = (params.geo ?? "").trim();
   const hasWebsite = (params.hasWebsite ?? "").trim();
 
-  const wheres: string[] = [];
-  const bind: Record<string, unknown> = {};
+  let whereConditions = "";
+  const conditions: string[] = [];
 
-  if (q) {
-    wheres.push("(name like @q or domain like @q or one_liner like @q)");
-    bind.q = `%${q}%`;
-  }
-  if (stage) {
-    wheres.push("(stage like @stage)");
-    bind.stage = `%${stage}%`;
-  }
-  if (geo) {
-    wheres.push("(geo like @geo)");
-    bind.geo = `%${geo}%`;
-  }
-  if (hasWebsite === "1") wheres.push("(website_url is not null and website_url != '')");
-  if (hasWebsite === "0") wheres.push("(website_url is null or website_url = '')");
+  if (q) conditions.push(`(c.name ILIKE '%${q}%' OR c.domain ILIKE '%${q}%' OR c.one_liner ILIKE '%${q}%')`);
+  if (stage) conditions.push(`c.stage ILIKE '%${stage}%'`);
+  if (geo) conditions.push(`c.geo ILIKE '%${geo}%'`);
+  if (hasWebsite === "1") conditions.push("(c.website_url IS NOT NULL AND c.website_url != '')");
+  if (hasWebsite === "0") conditions.push("(c.website_url IS NULL OR c.website_url = '')");
 
-  const where = wheres.length ? `where ${wheres.join(" and ")}` : "";
-  const rows = d
-    .prepare(
-      `
-      select
-        c.id, c.name, c.domain, c.website_url, c.one_liner, c.stage, c.geo, c.created_at, c.updated_at,
-        tm.score as match_score,
-        tm.reasons_json as match_reasons_json,
-        tm.missing_json as match_missing_json
-      from companies c
-      left join thesis_matches tm
-        on tm.company_id = c.id and tm.thesis_id = @thesis_id
-      ${where}
-      order by c.updated_at desc
-      limit 200
-      `
-    )
-    .all({ ...bind, thesis_id: thesis.id }) as any;
+  if (conditions.length > 0) {
+    whereConditions = "WHERE " + conditions.join(" AND ");
+  }
 
-  return rows;
+  const rows = await sql`
+    SELECT
+      c.id, c.name, c.domain, c.website_url, c.one_liner, c.stage, c.geo, c.created_at, c.updated_at,
+      tm.score as match_score,
+      tm.reasons_json as match_reasons_json,
+      tm.missing_json as match_missing_json
+    FROM companies c
+    LEFT JOIN thesis_matches tm ON tm.company_id = c.id AND tm.thesis_id = ${thesis.id}
+    ${sql(whereConditions)}
+    ORDER BY c.updated_at DESC
+    LIMIT 200
+  `;
+
+  return rows as any;
 }
 
 export async function searchCompaniesPaged(params: {
@@ -65,8 +54,8 @@ export async function searchCompaniesPaged(params: {
   limit?: number;
   offset?: number;
 }): Promise<{ total: number; rows: Array<Company & { match_score: number | null }> }> {
-  const d = getDb();
-  const thesis = getActiveThesis();
+  const sql = getDb();
+  const thesis = await getActiveThesis();
   const q = (params.q ?? "").trim();
   const stage = (params.stage ?? "").trim();
   const geo = (params.geo ?? "").trim();
@@ -75,75 +64,60 @@ export async function searchCompaniesPaged(params: {
   const limit = Math.max(1, Math.min(200, params.limit ?? 25));
   const offset = Math.max(0, params.offset ?? 0);
 
-  const wheres: string[] = [];
-  const bind: Record<string, unknown> = {};
+  let whereConditions = "";
+  const conditions: string[] = [];
 
-  if (q) {
-    wheres.push("(c.name like @q or c.domain like @q or c.one_liner like @q)");
-    bind.q = `%${q}%`;
-  }
-  if (stage) {
-    wheres.push("(c.stage like @stage)");
-    bind.stage = `%${stage}%`;
-  }
-  if (geo) {
-    wheres.push("(c.geo like @geo)");
-    bind.geo = `%${geo}%`;
-  }
-  if (hasWebsite === "1") wheres.push("(c.website_url is not null and c.website_url != '')");
-  if (hasWebsite === "0") wheres.push("(c.website_url is null or c.website_url = '')");
+  if (q) conditions.push(`(c.name ILIKE '%${q}%' OR c.domain ILIKE '%${q}%' OR c.one_liner ILIKE '%${q}%')`);
+  if (stage) conditions.push(`c.stage ILIKE '%${stage}%'`);
+  if (geo) conditions.push(`c.geo ILIKE '%${geo}%'`);
+  if (hasWebsite === "1") conditions.push("(c.website_url IS NOT NULL AND c.website_url != '')");
+  if (hasWebsite === "0") conditions.push("(c.website_url IS NULL OR c.website_url = '')");
 
-  const where = wheres.length ? `where ${wheres.join(" and ")}` : "";
+  if (conditions.length > 0) {
+    whereConditions = "WHERE " + conditions.join(" AND ");
+  }
 
   const sort = params.sort ?? "updated";
-  const dir = params.dir === "asc" ? "asc" : "desc";
+  const dir = params.dir === "asc" ? "ASC" : "DESC";
 
   const orderBy =
     sort === "name"
       ? `c.name ${dir}`
       : sort === "score"
-        ? `coalesce(tm.score, -1) ${dir}, c.updated_at desc`
+        ? `COALESCE(tm.score, -1) ${dir}, c.updated_at DESC`
         : `c.updated_at ${dir}`;
 
-  const totalRow = d
-    .prepare(
-      `
-      select count(1) as n
-      from companies c
-      ${where}
-      `
-    )
-    .get(bind as any) as any;
+  const totalResults = await sql`
+    SELECT COUNT(*) as n
+    FROM companies c
+    ${sql(whereConditions)}
+  `;
 
-  const total = Number(totalRow?.n ?? 0);
+  const total = Number(totalResults[0]?.n ?? 0);
 
-  const rows = d
-    .prepare(
-      `
-      select
-        c.id, c.name, c.domain, c.website_url, c.one_liner, c.stage, c.geo, c.created_at, c.updated_at,
-        tm.score as match_score
-      from companies c
-      left join thesis_matches tm
-        on tm.company_id = c.id and tm.thesis_id = @thesis_id
-      ${where}
-      order by ${orderBy}
-      limit @limit offset @offset
-      `
-    )
-    .all({ ...bind, thesis_id: thesis.id, limit, offset }) as any;
+  const rows = await sql`
+    SELECT
+      c.id, c.name, c.domain, c.website_url, c.one_liner, c.stage, c.geo, c.created_at, c.updated_at,
+      tm.score as match_score
+    FROM companies c
+    LEFT JOIN thesis_matches tm ON tm.company_id = c.id AND tm.thesis_id = ${thesis.id}
+    ${sql(whereConditions)}
+    ORDER BY ${sql(orderBy)}
+    LIMIT ${limit}
+    OFFSET ${offset}
+  `;
 
-  return { total, rows };
+  return { total, rows: rows as any };
 }
 
 export async function getCompany(id: number): Promise<Company | null> {
-  const d = getDb();
-  const row = d
-    .prepare(
-      "select id, name, domain, website_url, one_liner, stage, geo, created_at, updated_at from companies where id = ?"
-    )
-    .get(id) as Company | undefined;
-  return row ?? null;
+  const sql = getDb();
+  const rows = await sql`
+    SELECT id, name, domain, website_url, one_liner, stage, geo, created_at, updated_at 
+    FROM companies 
+    WHERE id = ${id}
+  `;
+  return (rows[0] as any) || null;
 }
 
 export async function getLatestEnrichment(companyId: number): Promise<null | {
@@ -153,82 +127,80 @@ export async function getLatestEnrichment(companyId: number): Promise<null | {
   extracted_json: string;
   combined_text: string;
 }> {
-  const d = getDb();
-  const row = d
-    .prepare(
-      "select fetched_at, source_url, pages_json, extracted_json, combined_text from company_enrichment where company_id = ? order by id desc limit 1"
-    )
-    .get(companyId) as any;
-  return row ?? null;
+  const sql = getDb();
+  const rows = await sql`
+    SELECT fetched_at, source_url, pages_json, extracted_json, combined_text 
+    FROM company_enrichment 
+    WHERE company_id = ${companyId} 
+    ORDER BY id DESC 
+    LIMIT 1
+  `;
+  return (rows[0] as any) || null;
 }
 
 export async function computeAndUpsertMatch(companyId: number, text: string) {
-  const d = getDb();
-  const thesis = getActiveThesis();
+  const sql = getDb();
+  const thesis = await getActiveThesis();
   const scored = scoreTextAgainstThesis({ text, thesis: thesis.definition });
 
-  d.prepare(
-    `insert into thesis_matches(company_id, thesis_id, score, confidence, reasons_json, missing_json)
-     values(@company_id, @thesis_id, @score, @confidence, @reasons_json, @missing_json)
-     on conflict(company_id, thesis_id) do update set
-       score=excluded.score,
-       confidence=excluded.confidence,
-       reasons_json=excluded.reasons_json,
-       missing_json=excluded.missing_json,
-       computed_at=datetime('now')
-    `
-  ).run({
-    company_id: companyId,
-    thesis_id: thesis.id,
-    score: scored.score,
-    confidence: scored.confidence,
-    reasons_json: JSON.stringify(scored.reasons),
-    missing_json: JSON.stringify(scored.missing)
-  });
+  await sql`
+    INSERT INTO thesis_matches(company_id, thesis_id, score, confidence, reasons_json, missing_json)
+    VALUES(${companyId}, ${thesis.id}, ${scored.score}, ${scored.confidence}, ${JSON.stringify(scored.reasons)}, ${JSON.stringify(scored.missing)})
+    ON CONFLICT(company_id, thesis_id) 
+    DO UPDATE SET
+      score = EXCLUDED.score,
+      confidence = EXCLUDED.confidence,
+      reasons_json = EXCLUDED.reasons_json,
+      missing_json = EXCLUDED.missing_json,
+      created_at = NOW()
+  `;
 
-  const match = d
-    .prepare(
-      "select company_id, thesis_id, score, confidence, reasons_json, missing_json, computed_at from thesis_matches where company_id = ? and thesis_id = ?"
-    )
-    .get(companyId, thesis.id) as any;
+  const matches = await sql`
+    SELECT company_id, thesis_id, score, confidence, reasons_json, missing_json, created_at 
+    FROM thesis_matches 
+    WHERE company_id = ${companyId} AND thesis_id = ${thesis.id}
+  `;
 
+  const match = matches[0];
   return { thesis: { id: thesis.id, name: thesis.name, version: thesis.version }, match };
 }
 
 export async function listLists(): Promise<Array<{ id: number; name: string; description: string | null }>> {
-  const d = getDb();
-  return d
-    .prepare("select id, name, description from lists order by created_at desc")
-    .all() as any;
+  const sql = getDb();
+  return await sql`
+    SELECT id, name, description 
+    FROM company_lists 
+    ORDER BY created_at DESC
+  `;
 }
 
 export async function getList(listId: number): Promise<{ id: number; name: string; description: string | null } | null> {
-  const d = getDb();
-  const row = d
-    .prepare("select id, name, description from lists where id = ?")
-    .get(listId) as any;
-  return row ?? null;
+  const sql = getDb();
+  const rows = await sql`
+    SELECT id, name, description 
+    FROM company_lists 
+    WHERE id = ${listId}
+  `;
+  return (rows[0] as any) || null;
 }
 
 export async function listCompaniesInList(listId: number): Promise<Company[]> {
-  const d = getDb();
-  const rows = d
-    .prepare(
-      `
-      select c.id, c.name, c.domain, c.website_url, c.one_liner, c.stage, c.geo, c.created_at, c.updated_at
-      from list_items li
-      join companies c on c.id = li.company_id
-      where li.list_id = ?
-      order by li.added_at desc
-      `
-    )
-    .all(listId) as Company[];
-  return rows;
+  const sql = getDb();
+  const rows = await sql`
+    SELECT c.id, c.name, c.domain, c.website_url, c.one_liner, c.stage, c.geo, c.created_at, c.updated_at
+    FROM company_list_items li
+    JOIN companies c ON c.id = li.company_id
+    WHERE li.list_id = ${listId}
+    ORDER BY li.added_at DESC
+  `;
+  return rows as any;
 }
 
 export async function listSavedSearches(): Promise<Array<{ id: number; name: string; query_json: string }>> {
-  const d = getDb();
-  return d
-    .prepare("select id, name, query_json from saved_searches order by created_at desc")
-    .all() as any;
+  const sql = getDb();
+  return await sql`
+    SELECT id, name, query_json 
+    FROM saved_searches 
+    ORDER BY created_at DESC
+  ` as any;
 }

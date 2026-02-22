@@ -28,10 +28,8 @@ export async function POST(req: Request) {
   const parsed = CreateSchema.safeParse(json);
   if (!parsed.success) return NextResponse.json({ error: "Invalid body" }, { status: 400 });
 
-  const d = getDb();
-  const info = d
-    .prepare("insert into lists(name, description) values(?, ?)")
-    .run(parsed.data.name, parsed.data.description ?? null);
+  const sql = getDb();
+  const result = await sql`INSERT INTO company_lists(name, description) VALUES(${parsed.data.name}, ${parsed.data.description ?? null}) RETURNING id`;
 
-  return NextResponse.json({ ok: true, id: Number(info.lastInsertRowid) });
+  return NextResponse.json({ ok: true, id: result[0]?.id });
 }

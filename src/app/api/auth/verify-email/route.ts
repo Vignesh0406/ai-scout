@@ -13,9 +13,9 @@ export async function POST(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: "Invalid body" }, { status: 400 });
 
   const email = normalizeEmail(parsed.data.email);
-  const result = verifyOtp({ email, code: parsed.data.code });
+  const result = await verifyOtp({ email, code: parsed.data.code });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
 
-  markUserVerified(email);
+  await markUserVerified(email);
   return NextResponse.json({ ok: true });
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getDb } from "@/lib/db";
-import { generateOtpCode, hashPassword, normalizeEmail, storeOtp } from "@/lib/auth";
+import { generateOtpCode, hashPassword, normalizeEmail, storeOtp, getUserByEmail } from "@/lib/auth";
 import { sendOtpEmail } from "@/lib/email";
 
 const PasswordSchema = z
@@ -24,10 +24,10 @@ export async function POST(req: Request) {
   const parsed = BodySchema.safeParse(json);
   if (!parsed.success) return NextResponse.json({ error: "Invalid body" }, { status: 400 });
 
-  const d = getDb();
+  const sql = getDb();
   const email = normalizeEmail(parsed.data.email);
 
-  const existing = d.prepare("select id, verified_at from users where email = ?").get(email) as any;
+  const existing = await getUserByEmail(email);
   if (existing?.verified_at) {
     return NextResponse.json({ error: "Account already exists. Please sign in." }, { status: 400 });
   }
@@ -36,9 +36,9 @@ export async function POST(req: Request) {
 
   try {
     if (existing?.id) {
-      d.prepare("update users set username = ?, password_hash = ? where id = ?").run(parsed.data.username, password_hash, existing.id);
+      await sql`UPDATE users SET username = ${parsed.data.username}, password_hash = ${password_hash} WHERE id = ${existing.id}`;
     } else {
-      d.prepare("insert into users(email, username, password_hash) values(?, ?, ?)").run(email, parsed.data.username, password_hash);
+      await sql`INSERT INTO users(email, username, password_hash) VALUES(${email}, ${parsed.data.username}, ${password_hash})`;
     }
   } catch (err: any) {
     const msg = err?.message ?? "";
@@ -49,7 +49,7 @@ export async function POST(req: Request) {
   }
 
   const code = generateOtpCode();
-  storeOtp({ email, code, ttlMinutes: 10 });
+  await storeOtp({ email, code, ttlMinutes: 10 });
   const sent = await sendOtpEmail({ to: email, code });
   if (!sent.ok) {
     return NextResponse.json(

@@ -1,11 +1,10 @@
 import { getDb } from "@/lib/db";
 import type { Thesis, ThesisDefinition } from "@/lib/types";
 
-export function getActiveThesis(): Thesis & { definition: ThesisDefinition } {
-  const d = getDb();
-  const row = d
-    .prepare("select id, name, version, definition_json from theses order by id asc limit 1")
-    .get() as Thesis;
+export async function getActiveThesis(): Promise<Thesis & { definition: ThesisDefinition }> {
+  const sql = getDb();
+  const rows = await sql`SELECT id, name, version, definition_json FROM theses ORDER BY id ASC LIMIT 1`;
+  const row = rows[0] as any;
   const definition = JSON.parse(row.definition_json) as ThesisDefinition;
   return { ...row, definition };
 }

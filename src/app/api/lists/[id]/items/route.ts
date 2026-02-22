@@ -18,8 +18,12 @@ export async function POST(
   const parsed = AddSchema.safeParse(json);
   if (!parsed.success) return NextResponse.json({ error: "Invalid body" }, { status: 400 });
 
-  const d = getDb();
-  d.prepare("insert or ignore into list_items(list_id, company_id) values(?, ?)").run(listId, parsed.data.companyId);
+  const sql = getDb();
+  try {
+    await sql`INSERT INTO company_list_items(list_id, company_id) VALUES(${listId}, ${parsed.data.companyId})`;
+  } catch {
+    // Ignore duplicate errors
+  }
   return NextResponse.json({ ok: true });
 }
 
@@ -35,7 +39,7 @@ export async function DELETE(
   const parsed = AddSchema.safeParse(json);
   if (!parsed.success) return NextResponse.json({ error: "Invalid body" }, { status: 400 });
 
-  const d = getDb();
-  d.prepare("delete from list_items where list_id = ? and company_id = ?").run(listId, parsed.data.companyId);
+  const sql = getDb();
+  await sql`DELETE FROM company_list_items WHERE list_id = ${listId} AND company_id = ${parsed.data.companyId}`;
   return NextResponse.json({ ok: true });
 }

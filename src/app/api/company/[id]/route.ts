@@ -17,17 +17,22 @@ export async function GET(
   if (!company) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const enrich = await getLatestEnrichment(companyId);
-  const d = getDb();
-  const thesis = getActiveThesis();
-  const match = d
-    .prepare(
-      "select score, confidence, reasons_json, missing_json, computed_at from thesis_matches where company_id = ? and thesis_id = ?"
-    )
-    .get(companyId, thesis.id) as any;
+  const sql = getDb();
+  const thesis = await getActiveThesis();
+  
+  const matches = await sql`
+    SELECT score, confidence, reasons_json, missing_json, created_at 
+    FROM thesis_matches 
+    WHERE company_id = ${companyId} AND thesis_id = ${thesis.id}
+  `;
+  const match = matches[0] || null;
 
-  const notes = d
-    .prepare("select id, body, created_at from notes where company_id = ? order by id desc")
-    .all(companyId) as any[];
+  const notes = await sql`
+    SELECT id, body, created_at 
+    FROM company_notes 
+    WHERE company_id = ${companyId} 
+    ORDER BY id DESC
+  `;
 
   return NextResponse.json({ company, enrichment: enrich, thesis: { id: thesis.id, name: thesis.name, version: thesis.version }, match, notes });
 }
@@ -42,10 +47,10 @@ export async function DELETE(
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
 
-  const d = getDb();
-  const existing = d.prepare("select id from companies where id = ?").get(companyId) as any;
-  if (!existing?.id) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const sql = getDb();
+  const existing = await sql`SELECT id FROM companies WHERE id = ${companyId}`;
+  if (existing.length === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  d.prepare("delete from companies where id = ?").run(companyId);
+  await sql`DELETE FROM companies WHERE id = ${companyId}`;
   return NextResponse.json({ ok: true });
 }

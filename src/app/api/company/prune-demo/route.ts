@@ -6,7 +6,7 @@ export async function POST() {
   const token = (await cookies()).get("scout_session")?.value;
   if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const d = getDb();
-  const info = d.prepare("delete from companies where domain like '%.demo'").run();
-  return NextResponse.json({ ok: true, deleted: info.changes });
+  const sql = getDb();
+  const result = await sql`DELETE FROM companies WHERE domain LIKE '%.demo'`;
+  return NextResponse.json({ ok: true, deleted: result.count });
 }

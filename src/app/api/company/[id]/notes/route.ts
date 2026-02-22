@@ -22,13 +22,16 @@ export async function POST(
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
-  const d = getDb();
-  d.prepare("insert into notes(company_id, body) values(?, ?)").run(companyId, parsed.data.body);
-  d.prepare("update companies set updated_at=datetime('now') where id = ?").run(companyId);
+  const sql = getDb();
+  await sql`INSERT INTO company_notes(company_id, body) VALUES(${companyId}, ${parsed.data.body})`;
+  await sql`UPDATE companies SET updated_at = NOW() WHERE id = ${companyId}`;
 
-  const notes = d
-    .prepare("select id, body, created_at from notes where company_id = ? order by id desc")
-    .all(companyId) as any[];
+  const notes = await sql`
+    SELECT id, body, created_at 
+    FROM company_notes 
+    WHERE company_id = ${companyId} 
+    ORDER BY id DESC
+  `;
 
   return NextResponse.json({ ok: true, notes });
 }

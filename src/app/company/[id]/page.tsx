@@ -17,17 +17,22 @@ export default async function CompanyPage({
   if (!company) notFound();
 
   const enrichment = await getLatestEnrichment(companyId);
-  const d = getDb();
-  const thesis = getActiveThesis();
-  const match = d
-    .prepare(
-      "select score, confidence, reasons_json, missing_json, computed_at from thesis_matches where company_id = ? and thesis_id = ?"
-    )
-    .get(companyId, thesis.id) as any;
+  const sql = getDb();
+  const thesis = await getActiveThesis();
+  
+  const matchRows = await sql`
+    SELECT score, confidence, reasons_json, missing_json, created_at 
+    FROM thesis_matches 
+    WHERE company_id = ${companyId} AND thesis_id = ${thesis.id}
+  `;
+  const match = matchRows[0] || null;
 
-  const notes = d
-    .prepare("select id, body, created_at from notes where company_id = ? order by id desc")
-    .all(companyId) as any[];
+  const notes = await sql`
+    SELECT id, body, created_at 
+    FROM company_notes 
+    WHERE company_id = ${companyId} 
+    ORDER BY id DESC
+  `;
 
   const initial = {
     company,

@@ -13,10 +13,10 @@ export async function POST(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: "Invalid body" }, { status: 400 });
 
   const email = normalizeEmail(parsed.data.email);
-  createOrGetUser(email);
+  await createOrGetUser(email);
 
   const code = generateOtpCode();
-  storeOtp({ email, code, ttlMinutes: 10 });
+  await storeOtp({ email, code, ttlMinutes: 10 });
 
   const sent = await sendOtpEmail({ to: email, code });
   if (!sent.ok) {

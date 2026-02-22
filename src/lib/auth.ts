@@ -1,6 +1,7 @@
-import crypto from "node:crypto";
 import { cookies } from "next/headers";
 import { getDb } from "@/lib/db";
+import type postgres from "postgres";
+import crypto from "crypto";
 
 const SESSION_COOKIE = "scout_session";
 
@@ -34,25 +35,23 @@ export function hashOtp(code: string) {
   return sha256Hex(code);
 }
 
-export function createOrGetUser(email: string) {
-  const d = getDb();
+export async function createOrGetUser(email: string) {
+  const sql = getDb();
   const normalized = normalizeEmail(email);
 
-  const existing = d.prepare("select id, email, created_at from users where email = ?").get(normalized) as any;
-  if (existing) return existing;
+  let user = await sql`SELECT id, email, created_at FROM users WHERE email = ${normalized}`;
+  if (user.length > 0) return user[0];
 
-  const info = d.prepare("insert into users(email) values(?)").run(normalized);
-  return d
-    .prepare("select id, email, created_at from users where id = ?")
-    .get(Number(info.lastInsertRowid)) as any;
+  await sql`INSERT INTO users(email) VALUES(${normalized})`;
+  user = await sql`SELECT id, email, created_at FROM users WHERE email = ${normalized}`;
+  return user[0];
 }
 
-export function getUserByEmail(email: string) {
-  const d = getDb();
+export async function getUserByEmail(email: string) {
+  const sql = getDb();
   const normalized = normalizeEmail(email);
-  return d
-    .prepare("select id, email, username, password_hash, verified_at, created_at from users where email = ?")
-    .get(normalized) as any;
+  const user = await sql`SELECT id, email, username, password_hash, verified_at, created_at FROM users WHERE email = ${normalized}`;
+  return user[0] || null;
 }
 
 export async function hashPassword(password: string) {
@@ -72,63 +71,63 @@ export async function verifyPassword(password: string, stored: string) {
   return crypto.timingSafeEqual(expected, actual);
 }
 
-export function markUserVerified(email: string) {
-  const d = getDb();
+export async function markUserVerified(email: string) {
+  const sql = getDb();
   const normalized = normalizeEmail(email);
-  d.prepare("update users set verified_at = datetime('now') where email = ?").run(normalized);
+  await sql`UPDATE users SET verified_at = NOW() WHERE email = ${normalized}`;
 }
 
-export function storeOtp(params: { email: string; code: string; ttlMinutes?: number }) {
-  const d = getDb();
+export async function storeOtp(params: { email: string; code: string; ttlMinutes?: number }) {
+  const sql = getDb();
   const normalized = normalizeEmail(params.email);
   const codeHash = hashOtp(params.code);
   const ttl = params.ttlMinutes ?? 10;
+  const expiresAt = new Date(Date.now() + ttl * 60 * 1000);
 
-  d.prepare(
-    "insert into otp_codes(email, code_hash, expires_at) values(?, ?, datetime('now', ?))"
-  ).run(normalized, codeHash, `+${ttl} minutes`);
+  await sql`INSERT INTO otp_codes(email, code_hash, expires_at) VALUES(${normalized}, ${codeHash}, ${expiresAt})`;
 }
 
-export function verifyOtp(params: { email: string; code: string }) {
-  const d = getDb();
+export async function verifyOtp(params: { email: string; code: string }) {
+  const sql = getDb();
   const normalized = normalizeEmail(params.email);
   const codeHash = hashOtp(params.code);
 
-  const row = d
-    .prepare(
-      "select id, attempts, expires_at from otp_codes where email = ? and code_hash = ? and used_at is null order by id desc limit 1"
-    )
-    .get(normalized, codeHash) as any;
+  const rows = await sql`
+    SELECT id, attempts, expires_at FROM otp_codes 
+    WHERE email = ${normalized} AND code_hash = ${codeHash} AND used_at IS NULL 
+    ORDER BY id DESC LIMIT 1
+  `;
 
-  if (!row) {
-    const latest = d
-      .prepare(
-        "select id, attempts, expires_at from otp_codes where email = ? and used_at is null order by id desc limit 1"
-      )
-      .get(normalized) as any;
-    if (latest?.id) d.prepare("update otp_codes set attempts = attempts + 1 where id = ?").run(latest.id);
+  if (rows.length === 0) {
+    const latestRows = await sql`
+      SELECT id, attempts, expires_at FROM otp_codes 
+      WHERE email = ${normalized} AND used_at IS NULL 
+      ORDER BY id DESC LIMIT 1
+    `;
+    if (latestRows.length > 0) {
+      await sql`UPDATE otp_codes SET attempts = attempts + 1 WHERE id = ${latestRows[0].id}`;
+    }
     return { ok: false, error: "Invalid code" } as const;
   }
 
-  const expired = d.prepare("select datetime('now') > ? as expired").get(row.expires_at) as any;
-  if (expired?.expired) return { ok: false, error: "Code expired" } as const;
-
+  const row = rows[0];
+  const now = new Date();
+  if (now > row.expires_at) return { ok: false, error: "Code expired" } as const;
   if ((row.attempts ?? 0) >= 8) return { ok: false, error: "Too many attempts" } as const;
 
-  d.prepare("update otp_codes set used_at = datetime('now') where id = ?").run(row.id);
+  await sql`UPDATE otp_codes SET used_at = NOW() WHERE id = ${row.id}`;
   return { ok: true } as const;
 }
 
 export async function createSession(email: string) {
-  const d = getDb();
-  const user = createOrGetUser(email);
+  const sql = getDb();
+  const user = await createOrGetUser(email);
 
   const token = randomToken(32);
   const tokenHash = sha256Hex(token);
 
-  d.prepare(
-    "insert into sessions(user_id, token_hash, expires_at) values(?, ?, datetime('now', '+30 days'))"
-  ).run(user.id, tokenHash);
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  await sql`INSERT INTO sessions(user_id, token_hash, expires_at) VALUES(${user.id}, ${tokenHash}, ${expiresAt})`;
 
   const jar = await cookies();
   jar.set({
@@ -162,14 +161,16 @@ export async function getCurrentUser() {
   const token = jar.get(SESSION_COOKIE)?.value;
   if (!token) return null;
 
-  const d = getDb();
+  const sql = getDb();
   const tokenHash = sha256Hex(token);
+  const now = new Date();
 
-  const row = d
-    .prepare(
-      "select u.id, u.email from sessions s join users u on u.id = s.user_id where s.token_hash = ? and datetime('now') < s.expires_at order by s.id desc limit 1"
-    )
-    .get(tokenHash) as any;
+  const rows = await sql`
+    SELECT u.id, u.email FROM sessions s 
+    JOIN users u ON u.id = s.user_id 
+    WHERE s.token_hash = ${tokenHash} AND NOW() < s.expires_at 
+    ORDER BY s.id DESC LIMIT 1
+  `;
 
-  return row ?? null;
+  return rows[0] || null;
 }
