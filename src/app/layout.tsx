@@ -51,15 +51,23 @@ export default async function RootLayout({
                   </Link>
                 </nav>
 
-                <div className="mt-6 flex items-center justify-between gap-2 px-2">
-                  <ThemeClient />
-                  {user ? (
-                    <AuthStatusClient email={user.email} />
-                  ) : (
-                    <Link href="/login" className="btn-primary">
-                      Sign in
-                    </Link>
+                <div className="mt-6 space-y-3 px-2">
+                  {user && (
+                    <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 px-3 py-2">
+                      <div className="text-xs text-blue-600 dark:text-blue-400 font-medium">Logged in as</div>
+                      <div className="text-sm font-semibold text-blue-900 dark:text-blue-100 truncate">{user.email}</div>
+                    </div>
                   )}
+                  <div className="flex items-center justify-between gap-2">
+                    <ThemeClient />
+                    {user ? (
+                      <AuthStatusClient email={user.email} />
+                    ) : (
+                      <Link href="/login" className="btn-primary">
+                        Sign in
+                      </Link>
+                    )}
+                  </div>
                 </div>
               </aside>
 

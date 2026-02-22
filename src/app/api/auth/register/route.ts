@@ -34,10 +34,18 @@ export async function POST(req: Request) {
 
   const password_hash = await hashPassword(parsed.data.password);
 
-  if (existing?.id) {
-    d.prepare("update users set username = ?, password_hash = ? where id = ?").run(parsed.data.username, password_hash, existing.id);
-  } else {
-    d.prepare("insert into users(email, username, password_hash) values(?, ?, ?)").run(email, parsed.data.username, password_hash);
+  try {
+    if (existing?.id) {
+      d.prepare("update users set username = ?, password_hash = ? where id = ?").run(parsed.data.username, password_hash, existing.id);
+    } else {
+      d.prepare("insert into users(email, username, password_hash) values(?, ?, ?)").run(email, parsed.data.username, password_hash);
+    }
+  } catch (err: any) {
+    const msg = err?.message ?? "";
+    if (msg.includes("UNIQUE") || msg.includes("unique")) {
+      return NextResponse.json({ error: "This email is already registered. Please sign in or use a different email." }, { status: 400 });
+    }
+    throw err;
   }
 
   const code = generateOtpCode();

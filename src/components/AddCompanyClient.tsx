@@ -92,7 +92,7 @@ export default function AddCompanyClient() {
         setOpen(false);
         setSuccess(null);
         if (typeof j?.id === "number") {
-          router.push(`/company/${j.id}`);
+          router.push(`/companies/${j.id}`);
         } else {
           router.refresh();
         }
