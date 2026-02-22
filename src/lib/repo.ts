@@ -10,38 +10,61 @@ export async function searchCompanies(params: {
 }): Promise<Array<Company & { match_score: number | null; match_reasons_json: string | null; match_missing_json: string | null }>> {
   const sql = getDb();
   const thesis = await getActiveThesis();
-  const q = (params.q ?? "").trim();
-  const stage = (params.stage ?? "").trim();
-  const geo = (params.geo ?? "").trim();
+  const q = `%${(params.q ?? "").trim()}%`;
+  const stage = `%${(params.stage ?? "").trim()}%`;
+  const geo = `%${(params.geo ?? "").trim()}%`;
   const hasWebsite = (params.hasWebsite ?? "").trim();
 
-  const conditions: string[] = [];
-  if (q) conditions.push(`(c.name ILIKE $1 OR c.domain ILIKE $1 OR c.one_liner ILIKE $1)`);
-  if (stage) conditions.push(`c.stage ILIKE $2`);
-  if (geo) conditions.push(`c.geo ILIKE $3`);
-  if (hasWebsite === "1") conditions.push("(c.website_url IS NOT NULL AND c.website_url != '')");
-  if (hasWebsite === "0") conditions.push("(c.website_url IS NULL OR c.website_url = '')");
+  let rows: any[] = [];
 
-  const whereClause = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
-  const queryStr = `
-    SELECT
-      c.id, c.name, c.domain, c.website_url, c.one_liner, c.stage, c.geo, c.created_at, c.updated_at,
-      tm.score as match_score,
-      tm.reasons_json as match_reasons_json,
-      tm.missing_json as match_missing_json
-    FROM companies c
-    LEFT JOIN thesis_matches tm ON tm.company_id = c.id AND tm.thesis_id = $4
-    ${whereClause}
-    ORDER BY c.updated_at DESC
-    LIMIT 200
-  `;
-
-  const rows = await sql.unsafe(queryStr, [
-    `%${q}%`,
-    `%${stage}%`,
-    `%${geo}%`,
-    thesis.id
-  ]);
+  if (hasWebsite === "1") {
+    rows = await sql`
+      SELECT
+        c.id, c.name, c.domain, c.website_url, c.one_liner, c.stage, c.geo, c.created_at, c.updated_at,
+        tm.score as match_score,
+        tm.reasons_json as match_reasons_json,
+        tm.missing_json as match_missing_json
+      FROM companies c
+      LEFT JOIN thesis_matches tm ON tm.company_id = c.id AND tm.thesis_id = ${thesis.id}
+      WHERE (c.name ILIKE ${q} OR c.domain ILIKE ${q} OR c.one_liner ILIKE ${q})
+        AND c.stage ILIKE ${stage}
+        AND c.geo ILIKE ${geo}
+        AND c.website_url IS NOT NULL AND c.website_url != ''
+      ORDER BY c.updated_at DESC
+      LIMIT 200
+    `;
+  } else if (hasWebsite === "0") {
+    rows = await sql`
+      SELECT
+        c.id, c.name, c.domain, c.website_url, c.one_liner, c.stage, c.geo, c.created_at, c.updated_at,
+        tm.score as match_score,
+        tm.reasons_json as match_reasons_json,
+        tm.missing_json as match_missing_json
+      FROM companies c
+      LEFT JOIN thesis_matches tm ON tm.company_id = c.id AND tm.thesis_id = ${thesis.id}
+      WHERE (c.name ILIKE ${q} OR c.domain ILIKE ${q} OR c.one_liner ILIKE ${q})
+        AND c.stage ILIKE ${stage}
+        AND c.geo ILIKE ${geo}
+        AND (c.website_url IS NULL OR c.website_url = '')
+      ORDER BY c.updated_at DESC
+      LIMIT 200
+    `;
+  } else {
+    rows = await sql`
+      SELECT
+        c.id, c.name, c.domain, c.website_url, c.one_liner, c.stage, c.geo, c.created_at, c.updated_at,
+        tm.score as match_score,
+        tm.reasons_json as match_reasons_json,
+        tm.missing_json as match_missing_json
+      FROM companies c
+      LEFT JOIN thesis_matches tm ON tm.company_id = c.id AND tm.thesis_id = ${thesis.id}
+      WHERE (c.name ILIKE ${q} OR c.domain ILIKE ${q} OR c.one_liner ILIKE ${q})
+        AND c.stage ILIKE ${stage}
+        AND c.geo ILIKE ${geo}
+      ORDER BY c.updated_at DESC
+      LIMIT 200
+    `;
+  }
 
   return rows as any;
 }
@@ -58,22 +81,13 @@ export async function searchCompaniesPaged(params: {
 }): Promise<{ total: number; rows: Array<Company & { match_score: number | null }> }> {
   const sql = getDb();
   const thesis = await getActiveThesis();
-  const q = (params.q ?? "").trim();
-  const stage = (params.stage ?? "").trim();
-  const geo = (params.geo ?? "").trim();
+  const q = `%${(params.q ?? "").trim()}%`;
+  const stage = `%${(params.stage ?? "").trim()}%`;
+  const geo = `%${(params.geo ?? "").trim()}%`;
   const hasWebsite = (params.hasWebsite ?? "").trim();
 
   const limit = Math.max(1, Math.min(200, params.limit ?? 25));
   const offset = Math.max(0, params.offset ?? 0);
-
-  const conditions: string[] = [];
-  if (q) conditions.push(`(c.name ILIKE $1 OR c.domain ILIKE $1 OR c.one_liner ILIKE $1)`);
-  if (stage) conditions.push(`c.stage ILIKE $2`);
-  if (geo) conditions.push(`c.geo ILIKE $3`);
-  if (hasWebsite === "1") conditions.push("(c.website_url IS NOT NULL AND c.website_url != '')");
-  if (hasWebsite === "0") conditions.push("(c.website_url IS NULL OR c.website_url = '')");
-
-  const whereClause = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
 
   const sort = params.sort ?? "updated";
   const dir = params.dir === "asc" ? "ASC" : "DESC";
@@ -85,41 +99,76 @@ export async function searchCompaniesPaged(params: {
         ? `COALESCE(tm.score, -1) ${dir}, c.updated_at DESC`
         : `c.updated_at ${dir}`;
 
-  const countQueryStr = `
-    SELECT COUNT(*) as n
-    FROM companies c
-    ${whereClause}
-  `;
+  let totalResult: any;
+  let rows: any[] = [];
 
-  const totalResults = await sql.unsafe(countQueryStr, [
-    `%${q}%`,
-    `%${stage}%`,
-    `%${geo}%`
-  ]);
+  if (hasWebsite === "1") {
+    const countResult = await sql`SELECT COUNT(*) as n FROM companies c 
+      WHERE (c.name ILIKE ${q} OR c.domain ILIKE ${q} OR c.one_liner ILIKE ${q})
+        AND c.stage ILIKE ${stage}
+        AND c.geo ILIKE ${geo}
+        AND c.website_url IS NOT NULL AND c.website_url != ''`;
+    totalResult = countResult[0];
 
-  const total = Number(totalResults[0]?.n ?? 0);
+    rows = await sql`
+      SELECT
+        c.id, c.name, c.domain, c.website_url, c.one_liner, c.stage, c.geo, c.created_at, c.updated_at,
+        tm.score as match_score
+      FROM companies c
+      LEFT JOIN thesis_matches tm ON tm.company_id = c.id AND tm.thesis_id = ${thesis.id}
+      WHERE (c.name ILIKE ${q} OR c.domain ILIKE ${q} OR c.one_liner ILIKE ${q})
+        AND c.stage ILIKE ${stage}
+        AND c.geo ILIKE ${geo}
+        AND c.website_url IS NOT NULL AND c.website_url != ''
+      ORDER BY c.updated_at DESC
+      LIMIT ${limit}
+      OFFSET ${offset}
+    `;
+  } else if (hasWebsite === "0") {
+    const countResult = await sql`SELECT COUNT(*) as n FROM companies c 
+      WHERE (c.name ILIKE ${q} OR c.domain ILIKE ${q} OR c.one_liner ILIKE ${q})
+        AND c.stage ILIKE ${stage}
+        AND c.geo ILIKE ${geo}
+        AND (c.website_url IS NULL OR c.website_url = '')`;
+    totalResult = countResult[0];
 
-  const rowsQueryStr = `
-    SELECT
-      c.id, c.name, c.domain, c.website_url, c.one_liner, c.stage, c.geo, c.created_at, c.updated_at,
-      tm.score as match_score
-    FROM companies c
-    LEFT JOIN thesis_matches tm ON tm.company_id = c.id AND tm.thesis_id = $4
-    ${whereClause}
-    ORDER BY ${orderBy}
-    LIMIT $5
-    OFFSET $6
-  `;
+    rows = await sql`
+      SELECT
+        c.id, c.name, c.domain, c.website_url, c.one_liner, c.stage, c.geo, c.created_at, c.updated_at,
+        tm.score as match_score
+      FROM companies c
+      LEFT JOIN thesis_matches tm ON tm.company_id = c.id AND tm.thesis_id = ${thesis.id}
+      WHERE (c.name ILIKE ${q} OR c.domain ILIKE ${q} OR c.one_liner ILIKE ${q})
+        AND c.stage ILIKE ${stage}
+        AND c.geo ILIKE ${geo}
+        AND (c.website_url IS NULL OR c.website_url = '')
+      ORDER BY c.updated_at DESC
+      LIMIT ${limit}
+      OFFSET ${offset}
+    `;
+  } else {
+    const countResult = await sql`SELECT COUNT(*) as n FROM companies c 
+      WHERE (c.name ILIKE ${q} OR c.domain ILIKE ${q} OR c.one_liner ILIKE ${q})
+        AND c.stage ILIKE ${stage}
+        AND c.geo ILIKE ${geo}`;
+    totalResult = countResult[0];
 
-  const rows = await sql.unsafe(rowsQueryStr, [
-    `%${q}%`,
-    `%${stage}%`,
-    `%${geo}%`,
-    thesis.id,
-    limit,
-    offset
-  ]);
+    rows = await sql`
+      SELECT
+        c.id, c.name, c.domain, c.website_url, c.one_liner, c.stage, c.geo, c.created_at, c.updated_at,
+        tm.score as match_score
+      FROM companies c
+      LEFT JOIN thesis_matches tm ON tm.company_id = c.id AND tm.thesis_id = ${thesis.id}
+      WHERE (c.name ILIKE ${q} OR c.domain ILIKE ${q} OR c.one_liner ILIKE ${q})
+        AND c.stage ILIKE ${stage}
+        AND c.geo ILIKE ${geo}
+      ORDER BY c.updated_at DESC
+      LIMIT ${limit}
+      OFFSET ${offset}
+    `;
+  }
 
+  const total = Number(totalResult?.n ?? 0);
   return { total, rows: rows as any };
 }
 
